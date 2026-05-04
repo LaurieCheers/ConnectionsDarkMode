@@ -263,12 +263,12 @@
 
     submitBtn.onclick = () => {
       const selectedTiles = tiles.filter(t => selected.has(t.word));
-      const groups = new Map();
+      const groupCounts = new Map();
       selectedTiles.forEach(t => {
-        groups.set(t.group, (groups.get(t.group) || 0) + 1);
+        groupCounts.set(t.group, (groupCounts.get(t.group) || 0) + 1);
       });
 
-      if (groups.size === 1 && [...groups.values()][0] === 4) {
+      if (groupCounts.size === 1 && [...groupCounts.values()][0] === 4) {
         // Correct!
         const group = selectedTiles[0].group;
         solved.push(group);
@@ -285,7 +285,7 @@
         }
       } else {
         // Check for "one away"
-        const maxMatch = Math.max(...groups.values());
+        const maxMatch = Math.max(...groupCounts.values());
         if (maxMatch === 3) {
           showMessage('One away...', 'error');
         } else {
@@ -295,6 +295,14 @@
         if (mistakes === 0) {
           showMessage('Game over!', 'error');
           document.querySelectorAll('button').forEach(b => b.disabled = true);
+          const remaining = groups.filter(g => !solved.includes(g));
+          remaining.forEach(group => {
+            const div = document.createElement('div');
+            div.className = `solved-group group-${group.color}`;
+            div.innerHTML = `<div class="category">${group.category}</div><div class="words">${group.words.join(', ')}</div>`;
+            solvedDiv.appendChild(div);
+          });
+          tiles = [];
         }
       }
       render();
