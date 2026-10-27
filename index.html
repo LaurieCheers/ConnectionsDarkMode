@@ -35,6 +35,45 @@
     .group-green { background: #336d2e; color: #121213; }
     .group-blue { background: #1a5b9d; color: #121213; }
     .group-purple { background: #6b3b90; color: #121213; }
+
+    .pending-groups { width: 100%; max-width: 600px; }
+
+    .pending-group {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 40px 16px 12px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      background: #565758;
+    }
+    .pending-group .words {
+      flex: 1;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .pending-group .pending-submit {
+      padding: 6px 14px;
+      border-color: #d7dadc;
+      font-size: 12px;
+    }
+    .pending-group .pending-submit:hover { background: #6a6b6c; }
+    .pending-group .pending-cancel {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      font-size: 18px;
+      line-height: 1;
+    }
+    .pending-group .pending-cancel:hover { background: #6a6b6c; }
     
     .grid {
       display: grid;
@@ -121,17 +160,22 @@
       .solved-group { padding: 12px; }
       .solved-group .category { font-size: 12px; }
       .solved-group .words { font-size: 14px; }
+      .pending-group { padding: 12px 36px 12px 8px; gap: 8px; }
+      .pending-group .words { font-size: 14px; }
+      .pending-group .pending-submit { padding: 6px 10px; font-size: 11px; }
     }
   </style>
 </head>
 <body>
   <h1>CONNECTIONS</h1>
   <div class="solved-groups" id="solved"></div>
+  <div class="pending-groups" id="pending"></div>
   <div class="grid" id="grid"></div>
   <div class="message" id="message"></div>
   <div class="controls">
     <button id="shuffle">Shuffle</button>
     <button id="deselect">Deselect All</button>
+    <button id="group" disabled>Group</button>
     <button id="submit" disabled>Submit</button>
   </div>
   <div class="mistakes">
@@ -147,9 +191,13 @@
     let solved = [];
     let mistakes = 4;
     let groups = [];
+    let pending = [];
+    let gameOver = false;
 
     const grid = document.getElementById('grid');
     const solvedDiv = document.getElementById('solved');
+    const pendingDiv = document.getElementById('pending');
+    const groupBtn = document.getElementById('group');
     const messageDiv = document.getElementById('message');
     const mistakesDiv = document.getElementById('mistakes');
     const submitBtn = document.getElementById('submit');
@@ -164,6 +212,7 @@
 
     async function fetchWithProxy(url) {
       const proxies = [
+        u => `https://r.jina.ai/${u}`,
         u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
         u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
         u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
@@ -179,7 +228,8 @@
             if (wrapper.contents) return JSON.parse(wrapper.contents);
             return wrapper;
           } catch {
-            return JSON.parse(text);
+            // r.jina.ai wraps the body in a markdown preamble
+            return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
           }
         } catch { continue; }
       }
@@ -187,7 +237,7 @@
     }
 
     async function loadPuzzle() {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = new Date().toLocaleDateString('en-CA');
       try {
         const data = await fetchWithProxy(`https://www.nytimes.com/svc/connections/v2/${today}.json`);
         
@@ -220,11 +270,37 @@
         grid.appendChild(btn);
       });
 
+      pendingDiv.innerHTML = '';
+      pending.forEach((groupTiles, i) => {
+        const div = document.createElement('div');
+        div.className = 'pending-group';
+
+        const submit = document.createElement('button');
+        submit.className = 'pending-submit';
+        submit.textContent = 'Submit';
+        submit.onclick = () => submitPending(i);
+
+        const words = document.createElement('div');
+        words.className = 'words';
+        words.textContent = groupTiles.map(t => t.word).join(', ');
+
+        const cancel = document.createElement('button');
+        cancel.className = 'pending-cancel';
+        cancel.textContent = '×';
+        cancel.title = 'Ungroup';
+        cancel.onclick = () => ungroup(i);
+
+        div.append(submit, words, cancel);
+        pendingDiv.appendChild(div);
+      });
+
       mistakesDiv.innerHTML = Array(4).fill(0)
         .map((_, i) => `<span class="mistake-dot${i >= mistakes ? ' used' : ''}"></span>`)
         .join('');
 
-      submitBtn.disabled = selected.size !== 4;
+      submitBtn.disabled = gameOver || selected.size !== 4;
+      groupBtn.disabled = gameOver || selected.size !== 4;
+      if (gameOver) document.querySelectorAll('button').forEach(b => b.disabled = true);
     }
 
     function toggleSelect(word) {
@@ -261,28 +337,54 @@
       render();
     };
 
+    groupBtn.onclick = () => {
+      pending.push(tiles.filter(t => selected.has(t.word)));
+      tiles = tiles.filter(t => !selected.has(t.word));
+      selected.clear();
+      render();
+    };
+
+    function ungroup(i) {
+      tiles.push(...pending[i]);
+      pending.splice(i, 1);
+      render();
+    }
+
+    function submitPending(i) {
+      const groupTiles = pending[i];
+      pending.splice(i, 1);
+      if (!checkGuess(groupTiles) && !gameOver) tiles.push(...groupTiles);
+      render();
+    }
+
     submitBtn.onclick = () => {
       const selectedTiles = tiles.filter(t => selected.has(t.word));
+      if (checkGuess(selectedTiles)) {
+        tiles = tiles.filter(t => !selected.has(t.word));
+        selected.clear();
+      }
+      render();
+    };
+
+    function checkGuess(guessTiles) {
       const groupCounts = new Map();
-      selectedTiles.forEach(t => {
+      guessTiles.forEach(t => {
         groupCounts.set(t.group, (groupCounts.get(t.group) || 0) + 1);
       });
 
-      if (groupCounts.size === 1 && [...groupCounts.values()][0] === 4) {
-        // Correct!
-        const group = selectedTiles[0].group;
+      if (groupCounts.size === 1) {
+        const group = guessTiles[0].group;
         solved.push(group);
-        tiles = tiles.filter(t => !selected.has(t.word));
-        selected.clear();
 
         const div = document.createElement('div');
         div.className = `solved-group group-${group.color}`;
         div.innerHTML = `<div class="category">${group.category}</div><div class="words">${group.words.join(', ')}</div>`;
         solvedDiv.appendChild(div);
 
-        if (tiles.length === 0) {
+        if (solved.length === groups.length) {
           showMessage('Congratulations!', 'success');
         }
+        return true;
       } else {
         // Check for "one away"
         const maxMatch = Math.max(...groupCounts.values());
@@ -294,7 +396,7 @@
         mistakes--;
         if (mistakes === 0) {
           showMessage('Game over!', 'error');
-          document.querySelectorAll('button').forEach(b => b.disabled = true);
+          gameOver = true;
           const remaining = groups.filter(g => !solved.includes(g));
           remaining.forEach(group => {
             const div = document.createElement('div');
@@ -303,10 +405,12 @@
             solvedDiv.appendChild(div);
           });
           tiles = [];
+          pending = [];
+          selected.clear();
         }
+        return false;
       }
-      render();
-    };
+    }
 
     // Load today's puzzle
     loadPuzzle();
