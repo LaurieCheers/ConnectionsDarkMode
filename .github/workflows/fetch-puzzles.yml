@@ -1,0 +1,42 @@
+name: Fetch puzzles
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download puzzles
+        run: |
+          mkdir -p puzzles
+          # Yesterday through tomorrow (UTC) covers every player's local date
+          for offset in -1 0 1; do
+            date=$(date -u -d "$offset day" +%F)
+            file="puzzles/$date.json"
+            [ -f "$file" ] && continue
+            if curl -sf "https://www.nytimes.com/svc/connections/v2/$date.json" -o "$file.tmp" \
+               && jq -e '.categories | length == 4' "$file.tmp" > /dev/null; then
+              mv "$file.tmp" "$file"
+              echo "Saved $file"
+            else
+              rm -f "$file.tmp"
+              echo "No puzzle for $date yet"
+            fi
+          done
+
+      - name: Commit new puzzles
+        run: |
+          git add puzzles
+          git diff --cached --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Add puzzles"
+          git push

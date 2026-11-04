@@ -239,7 +239,9 @@
     async function loadPuzzle() {
       const today = new Date().toLocaleDateString('en-CA');
       try {
-        const data = await fetchWithProxy(`https://www.nytimes.com/svc/connections/v2/${today}.json`);
+        const data = await fetch(`puzzles/${today}.json`)
+          .then(res => res.ok ? res.json() : Promise.reject())
+          .catch(() => fetchWithProxy(`https://www.nytimes.com/svc/connections/v2/${today}.json`));
         
         // Assign random colors
         const shuffledColors = [...colors];
